@@ -1,7 +1,9 @@
-gradio
 fastapi
+gradio>=4.16.0
 uvicorn
 passlib[bcrypt]
 requests
-faiss-cpu
 openai
+faiss-cpu
+numpy
+itsdangerous
