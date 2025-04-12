@@ -1,0 +1,7 @@
+gradio
+fastapi
+uvicorn
+passlib[bcrypt]
+requests
+faiss-cpu
+openai
