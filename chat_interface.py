@@ -70,11 +70,18 @@ def load_index_and_chunks():
         meta = json.load(f)
     return index, meta["chunks"], meta["sources"]
 
+import openai
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 def embed_query(text):
-    url = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
-    response = requests.post(url, headers=HEADERS, json={"inputs": text})
-    response.raise_for_status()
-    return np.array(response.json(), dtype='float32')
+    response = openai.Embedding.create(
+        model="text-embedding-ada-002",
+        input=text
+    )
+    embedding = response["data"][0]["embedding"]
+    return np.array(embedding, dtype='float32')
+
 
 
 def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
