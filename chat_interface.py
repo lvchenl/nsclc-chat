@@ -7,6 +7,15 @@ import os
 from collections import deque
 import requests
 
+# Hugging Face API Key
+HUGGINGFACE_API_KEY = os.getenv("HF_API_KEY")
+
+
+HEADERS = {
+    "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
+    "Content-Type": "application/json"
+}
+
 RESULTS_DIR = "results"
 global_chat_history = deque(maxlen=50)
 
@@ -55,7 +64,6 @@ SYSTEM_PROMPT_SHARED = (
     "🎯 **Final Goal:**\n"
     "Deliver a clinically actionable, evidence-backed, mutation-aware treatment plan — as if intended for oncologists or tumor board review."
 )
-
 def load_index_and_chunks():
     index = faiss.read_index("faiss_index.bin")
     with open("chunks.json", "r", encoding="utf-8") as f:
@@ -64,8 +72,7 @@ def load_index_and_chunks():
 
 def embed_query(text):
     url = "https://api-inference.huggingface.co/embeddings/sentence-transformers/all-MiniLM-L6-v2"
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(url, headers=headers, json={"inputs": text})
+    response = requests.post(url, headers=HEADERS, json={"inputs": text})
     response.raise_for_status()
     return np.array(response.json(), dtype='float32')
 
@@ -74,10 +81,9 @@ def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
     return [f"{chunks[i]} (Source: {sources[i]})" for i in I[0]]
 
 def query_chat_model(messages):
-    url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-    headers = {"Content-Type": "application/json"}
     prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in messages]) + "\nAssistant:"
-    response = requests.post(url, headers=headers, json={"inputs": prompt, "parameters": {"max_new_tokens": 512}})
+    url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+    response = requests.post(url, headers=HEADERS, json={"inputs": prompt, "parameters": {"max_new_tokens": 512}})
     response.raise_for_status()
     return response.json()[0]["generated_text"].split("Assistant:")[-1].strip()
 
@@ -137,4 +143,4 @@ def create_gradio_app():
         new_btn.click(fn=new_chat, outputs=[state, chatbot])
         save_btn.click(fn=save_chat, outputs=status_box)
 
-    return demo  # Return the Blocks app instead of launching
+    return demo
