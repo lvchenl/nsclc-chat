@@ -114,7 +114,7 @@ def direct_chat(user_input, chat_history):
     chat_history.append({"role": "assistant", "content": reply})
     global_chat_history.clear()
     global_chat_history.extend(chat_history)
-    return chat_history, [(x['content'], y['content']) for x, y in zip(chat_history[::2], chat_history[1::2])]
+    return chat_history, chat_history
 
 def rag_chat(user_input, chat_history):
     index, chunks, sources = load_index_and_chunks()
@@ -129,7 +129,7 @@ def rag_chat(user_input, chat_history):
     chat_history.append({"role": "assistant", "content": reply})
     global_chat_history.clear()
     global_chat_history.extend(chat_history)
-    return chat_history, [(x['content'], y['content']) for x, y in zip(chat_history[::2], chat_history[1::2])]
+    return chat_history, chat_history
 
 def new_chat():
     global_chat_history.clear()
@@ -142,7 +142,7 @@ def create_gradio_app():
     with gr.Blocks(title="NSCLC Chat with RAG and Memory") as demo:
         gr.Markdown("### 🧠 NSCLC Cancer Treatment Chat Assistant")
         new_btn = gr.Button("🔄 New Chat")
-        chatbot = gr.Chatbot()
+        chatbot = gr.Chatbot(type="messages")  # ✅ updated here
         user_box = gr.Textbox(placeholder="Type your question here...", show_label=False)
         with gr.Row():
             direct_btn = gr.Button("⬆️ Direct")
@@ -156,5 +156,4 @@ def create_gradio_app():
         new_btn.click(fn=new_chat, outputs=[state, chatbot])
         save_btn.click(fn=save_chat, outputs=status_box)
 
-    demo.launch()
-
+    demo.launch()  # ✅ no port hardcoding
