@@ -64,13 +64,8 @@ def load_index_and_chunks():
 
 def embed_query(text):
     url = "https://api-inference.huggingface.co/embeddings/sentence-transformers/all-MiniLM-L6-v2"
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "inputs": text
-    }
-    response = requests.post(url, headers=headers, json=payload)
+    headers = {"Content-Type": "application/json"}
+    response = requests.post(url, headers=headers, json={"inputs": text})
     response.raise_for_status()
     return np.array(response.json(), dtype='float32')
 
@@ -80,28 +75,17 @@ def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
 
 def query_chat_model(messages):
     url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-    headers = {
-        "Content-Type": "application/json"
-    }
-    prompt = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in messages])
-    prompt += "\nAssistant:"
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.7
-        }
-    }
-    response = requests.post(url, headers=headers, json=payload)
+    headers = {"Content-Type": "application/json"}
+    prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in messages]) + "\nAssistant:"
+    response = requests.post(url, headers=headers, json={"inputs": prompt, "parameters": {"max_new_tokens": 512}})
     response.raise_for_status()
     return response.json()[0]["generated_text"].split("Assistant:")[-1].strip()
 
 def save_chat_markdown(history):
     os.makedirs(RESULTS_DIR, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.join(RESULTS_DIR, f"chat_{timestamp}.md")
+    filename = os.path.join(RESULTS_DIR, f"chat_{datetime.datetime.now():%Y%m%d_%H%M%S}.md")
     with open(filename, "w", encoding="utf-8") as f:
-        f.write(f"# NSCLC Chat Session\n**Timestamp:** {timestamp}\n\n")
+        f.write(f"# NSCLC Chat Session\n**Timestamp:** {datetime.datetime.now()}\n\n")
         for turn in history:
             role = "🧑 User" if turn['role'] == 'user' else "🤖 Assistant"
             f.write(f"## {role}\n{turn['content']}\n\n")
@@ -119,12 +103,9 @@ def direct_chat(user_input, chat_history):
 def rag_chat(user_input, chat_history):
     index, chunks, sources = load_index_and_chunks()
     embedding = embed_query(user_input)
-    retrieved = retrieve_chunks(embedding, index, chunks, sources, k=5)
-    context = "\n".join(retrieved)
+    context = "\n".join(retrieve_chunks(embedding, index, chunks, sources, k=5))
     chat_history.append({"role": "user", "content": user_input})
-    messages = [
-        {"role": "system", "content": RAG_SYSTEM_PREFIX + SYSTEM_PROMPT_SHARED + "\n\nContext:\n" + context}
-    ] + list(chat_history)
+    messages = [{"role": "system", "content": RAG_SYSTEM_PREFIX + SYSTEM_PROMPT_SHARED + "\n\nContext:\n" + context}] + list(chat_history)
     reply = query_chat_model(messages)
     chat_history.append({"role": "assistant", "content": reply})
     global_chat_history.clear()
@@ -142,7 +123,7 @@ def create_gradio_app():
     with gr.Blocks(title="NSCLC Chat with RAG and Memory") as demo:
         gr.Markdown("### 🧠 NSCLC Cancer Treatment Chat Assistant")
         new_btn = gr.Button("🔄 New Chat")
-        chatbot = gr.Chatbot(type="messages")  # ✅ updated here
+        chatbot = gr.Chatbot(type="messages")
         user_box = gr.Textbox(placeholder="Type your question here...", show_label=False)
         with gr.Row():
             direct_btn = gr.Button("⬆️ Direct")
@@ -156,4 +137,4 @@ def create_gradio_app():
         new_btn.click(fn=new_chat, outputs=[state, chatbot])
         save_btn.click(fn=save_chat, outputs=status_box)
 
-    demo.launch()  # ✅ no port hardcoding
+    return demo  # Return the Blocks app instead of launching
