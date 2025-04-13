@@ -1,20 +1,12 @@
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
-from gradio import mount_gradio_app
 from auth import init_csv, register_user, verify_user
-from chat_interface import create_gradio_app  # ✅ Use the mountable version
+from chat_interface import create_gradio_app
 
-# Initialize FastAPI and user system
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="supersecretkey")
 init_csv()
-
-# ✅ Mount Gradio app at `/gradio`
-gradio_app = create_gradio_app()
-app = mount_gradio_app(app, gradio_app, path="/gradio")
-
-# --- Login/Registration Pages ---
 
 @app.get("/", response_class=HTMLResponse)
 def login_page():
@@ -29,9 +21,10 @@ def login_page():
     """
 
 @app.post("/login")
-def login(username: str = Form(...), password: str = Form(...)):
+def login(background_tasks: BackgroundTasks, username: str = Form(...), password: str = Form(...)):
     if verify_user(username, password):
-        return RedirectResponse("/gradio", status_code=302)
+        background_tasks.add_task(create_gradio_app)
+        return RedirectResponse("http://localhost:10000", status_code=302)
     return HTMLResponse("<h3>❌ Login failed. <a href='/'>Try again</a></h3>")
 
 @app.get("/register", response_class=HTMLResponse)

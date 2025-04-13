@@ -1,9 +1,9 @@
 fastapi
 gradio>=4.16.0
 uvicorn
-passlib[bcrypt]
 requests
-openai
 faiss-cpu
 numpy
+passlib[bcrypt]
 itsdangerous
+

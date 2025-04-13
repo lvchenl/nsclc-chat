@@ -7,8 +7,8 @@ import os
 from collections import deque
 import requests
 
-# Configuration
 RESULTS_DIR = "results"
+global_chat_history = deque(maxlen=50)
 
 # Prompt segments
 DIRECT_SYSTEM_PREFIX = (
@@ -55,16 +55,13 @@ SYSTEM_PROMPT_SHARED = (
     "🎯 **Final Goal:**\n"
     "Deliver a clinically actionable, evidence-backed, mutation-aware treatment plan — as if intended for oncologists or tumor board review."
 )
-global_chat_history = deque(maxlen=50)
 
-# Load FAISS index and associated chunks
 def load_index_and_chunks():
     index = faiss.read_index("faiss_index.bin")
     with open("chunks.json", "r", encoding="utf-8") as f:
         meta = json.load(f)
     return index, meta["chunks"], meta["sources"]
 
-# Hugging Face Embedding API (free)
 def embed_query(text):
     url = "https://api-inference.huggingface.co/embeddings/sentence-transformers/all-MiniLM-L6-v2"
     headers = {
@@ -77,21 +74,17 @@ def embed_query(text):
     response.raise_for_status()
     return np.array(response.json(), dtype='float32')
 
-# Retrieve top-k chunks
 def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
     D, I = index.search(query_embedding.reshape(1, -1), k)
     return [f"{chunks[i]} (Source: {sources[i]})" for i in I[0]]
 
-# Hugging Face chat model (free, public)
 def query_chat_model(messages):
     url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
     headers = {
         "Content-Type": "application/json"
     }
-
     prompt = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in messages])
     prompt += "\nAssistant:"
-
     payload = {
         "inputs": prompt,
         "parameters": {
@@ -99,12 +92,10 @@ def query_chat_model(messages):
             "temperature": 0.7
         }
     }
-
     response = requests.post(url, headers=headers, json=payload)
     response.raise_for_status()
     return response.json()[0]["generated_text"].split("Assistant:")[-1].strip()
 
-# Save chat history to Markdown
 def save_chat_markdown(history):
     os.makedirs(RESULTS_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -116,7 +107,6 @@ def save_chat_markdown(history):
             f.write(f"## {role}\n{turn['content']}\n\n")
     return filename
 
-# Direct chat
 def direct_chat(user_input, chat_history):
     chat_history.append({"role": "user", "content": user_input})
     messages = [{"role": "system", "content": DIRECT_SYSTEM_PREFIX + SYSTEM_PROMPT_SHARED}] + list(chat_history)
@@ -126,7 +116,6 @@ def direct_chat(user_input, chat_history):
     global_chat_history.extend(chat_history)
     return chat_history, [(x['content'], y['content']) for x, y in zip(chat_history[::2], chat_history[1::2])]
 
-# RAG chat
 def rag_chat(user_input, chat_history):
     index, chunks, sources = load_index_and_chunks()
     embedding = embed_query(user_input)
@@ -142,17 +131,14 @@ def rag_chat(user_input, chat_history):
     global_chat_history.extend(chat_history)
     return chat_history, [(x['content'], y['content']) for x, y in zip(chat_history[::2], chat_history[1::2])]
 
-# Clear chat
 def new_chat():
     global_chat_history.clear()
     return [], []
 
-# Save button
 def save_chat():
     return f"✅ Saved to `{save_chat_markdown(global_chat_history)}`"
 
-# Launch UI
-def launch_gradio_app():
+def create_gradio_app():
     with gr.Blocks(title="NSCLC Chat with RAG and Memory") as demo:
         gr.Markdown("### 🧠 NSCLC Cancer Treatment Chat Assistant")
         new_btn = gr.Button("🔄 New Chat")
