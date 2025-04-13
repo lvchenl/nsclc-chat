@@ -71,10 +71,11 @@ def load_index_and_chunks():
     return index, meta["chunks"], meta["sources"]
 
 def embed_query(text):
-    url = "https://api-inference.huggingface.co/embeddings/sentence-transformers/all-MiniLM-L6-v2"
+    url = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
     response = requests.post(url, headers=HEADERS, json={"inputs": text})
     response.raise_for_status()
     return np.array(response.json(), dtype='float32')
+
 
 def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
     D, I = index.search(query_embedding.reshape(1, -1), k)
