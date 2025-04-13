@@ -24,7 +24,7 @@ def login_page():
 def login(background_tasks: BackgroundTasks, username: str = Form(...), password: str = Form(...)):
     if verify_user(username, password):
         background_tasks.add_task(create_gradio_app)
-        return RedirectResponse("http://localhost:10000", status_code=302)
+        return RedirectResponse("/", status_code=302)
     return HTMLResponse("<h3>❌ Login failed. <a href='/'>Try again</a></h3>")
 
 @app.get("/register", response_class=HTMLResponse)
