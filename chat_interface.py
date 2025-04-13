@@ -156,4 +156,5 @@ def create_gradio_app():
         new_btn.click(fn=new_chat, outputs=[state, chatbot])
         save_btn.click(fn=save_chat, outputs=status_box)
 
-    demo.launch(server_name="0.0.0.0", server_port=10000)
+    demo.launch()
+
