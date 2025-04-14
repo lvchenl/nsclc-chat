@@ -6,25 +6,23 @@ import datetime
 import os
 from collections import deque
 import requests
+from openai import OpenAI
 
-# ✅ API Keys from environment variables
+# ✅ API keys and clients
 HUGGINGFACE_API_KEY = os.getenv("HF_API_KEY")
 ALIYUN_API_KEY = os.getenv("ALIYUN_API_KEY")
 
-# ✅ Headers for Hugging Face and Aliyun
+client = OpenAI(
+    api_key=ALIYUN_API_KEY,
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+)
+
 HF_HEADERS = {
     "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
     "Content-Type": "application/json"
 }
 
-ALIYUN_HEADERS = {
-    "Authorization": f"Bearer {ALIYUN_API_KEY}",
-    "Content-Type": "application/json"
-}
-
-ALIYUN_EMBEDDING_URL = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding-v3"
-
-# Global variables
+# ✅ Global constants
 RESULTS_DIR = "results"
 global_chat_history = deque(maxlen=50)
 
@@ -73,39 +71,41 @@ SYSTEM_PROMPT_SHARED = (
     "🎯 **Final Goal:**\n"
     "Deliver a clinically actionable, evidence-backed, mutation-aware treatment plan — as if intended for oncologists or tumor board review."
 )
-
-# ✅ Load FAISS index and chunks
+# ✅ Load FAISS + chunks
 def load_index_and_chunks():
     index = faiss.read_index("faiss_index.bin")
     with open("chunks.json", "r", encoding="utf-8") as f:
         meta = json.load(f)
     return index, meta["chunks"], meta["sources"]
 
-# ✅ Embedding via Alibaba Cloud
+# ✅ Alibaba Embedding
 def embed_query(text):
-    payload = {
-        "model": "text-embedding-v3",
-        "input": [text]
-    }
-    response = requests.post(ALIYUN_EMBEDDING_URL, headers=ALIYUN_HEADERS, json=payload)
-    response.raise_for_status()
-    embedding = response.json()["output"]["embeddings"][0]["embedding"]
+    response = client.embeddings.create(
+        model="text-embedding-v3",
+        input=[text],
+        dimensions=1024,
+        encoding_format="float"
+    )
+    embedding = response.data[0].embedding
     return np.array(embedding, dtype='float32')
 
-# ✅ RAG chunk retrieval
+# ✅ RAG retrieval
 def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
     D, I = index.search(query_embedding.reshape(1, -1), k)
     return [f"{chunks[i]} (Source: {sources[i]})" for i in I[0]]
 
-# ✅ Query Hugging Face Mistral model
+# ✅ Query chat model
 def query_chat_model(messages):
     prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in messages]) + "\nAssistant:"
     url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-    response = requests.post(url, headers=HF_HEADERS, json={"inputs": prompt, "parameters": {"max_new_tokens": 512}})
+    response = requests.post(url, headers=HF_HEADERS, json={
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 512}
+    })
     response.raise_for_status()
     return response.json()[0]["generated_text"].split("Assistant:")[-1].strip()
 
-# ✅ Save chat
+# ✅ Save .md transcript
 def save_chat_markdown(history):
     os.makedirs(RESULTS_DIR, exist_ok=True)
     filename = os.path.join(RESULTS_DIR, f"chat_{datetime.datetime.now():%Y%m%d_%H%M%S}.md")
@@ -116,7 +116,7 @@ def save_chat_markdown(history):
             f.write(f"## {role}\n{turn['content']}\n\n")
     return filename
 
-# ✅ Direct Mode
+# ✅ Direct chat
 def direct_chat(user_input, chat_history):
     chat_history.append({"role": "user", "content": user_input})
     messages = [{"role": "system", "content": DIRECT_SYSTEM_PREFIX + SYSTEM_PROMPT_SHARED}] + list(chat_history)
@@ -126,7 +126,7 @@ def direct_chat(user_input, chat_history):
     global_chat_history.extend(chat_history)
     return chat_history, chat_history
 
-# ✅ RAG Mode
+# ✅ RAG chat
 def rag_chat(user_input, chat_history):
     index, chunks, sources = load_index_and_chunks()
     embedding = embed_query(user_input)
@@ -139,15 +139,17 @@ def rag_chat(user_input, chat_history):
     global_chat_history.extend(chat_history)
     return chat_history, chat_history
 
+# ✅ Chat reset
 def new_chat():
     global_chat_history.clear()
     return [], []
 
+# ✅ Save chat + download
 def save_chat():
     filepath = save_chat_markdown(global_chat_history)
     return "", filepath
 
-# ✅ Gradio interface
+# ✅ Gradio UI
 def create_gradio_app():
     with gr.Blocks(title="NSCLC Chat with RAG and Memory") as demo:
         gr.Markdown("### 🧠 NSCLC Cancer Treatment Chat Assistant")
@@ -158,7 +160,7 @@ def create_gradio_app():
             direct_btn = gr.Button("⬆️ Direct")
             rag_btn = gr.Button("🔍 RAG")
         save_btn = gr.Button("💾 Save & Download Chat")
-        download_btn = gr.File(label="📥 Download Markdown File")
+        download_btn = gr.File(label="📥 Markdown Output")
         state = gr.State([])
 
         direct_btn.click(fn=direct_chat, inputs=[user_box, state], outputs=[state, chatbot])
