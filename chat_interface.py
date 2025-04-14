@@ -130,8 +130,13 @@ def new_chat():
     global_chat_history.clear()
     return [], []
 
+
+download_path = None  # Keep track of the latest saved file
+
 def save_chat():
-    return f"✅ Saved to `{save_chat_markdown(global_chat_history)}`"
+    filepath = save_chat_markdown(global_chat_history)
+    return "", filepath
+
 
 def create_gradio_app():
     with gr.Blocks(title="NSCLC Chat with RAG and Memory") as demo:
@@ -142,13 +147,13 @@ def create_gradio_app():
         with gr.Row():
             direct_btn = gr.Button("⬆️ Direct")
             rag_btn = gr.Button("🔍 RAG")
-        status_box = gr.Textbox(label="Status")
-        save_btn = gr.Button("💾 Save Chat")
+        save_btn = gr.Button("💾 Save & Download Chat")
+        download_btn = gr.File(label="📥 Download Your Chat (.md)")
         state = gr.State([])
 
         direct_btn.click(fn=direct_chat, inputs=[user_box, state], outputs=[state, chatbot])
         rag_btn.click(fn=rag_chat, inputs=[user_box, state], outputs=[state, chatbot])
         new_btn.click(fn=new_chat, outputs=[state, chatbot])
-        save_btn.click(fn=save_chat, outputs=status_box)
+        save_btn.click(fn=save_chat, outputs=[gr.Textbox(visible=False), download_btn])
 
     return demo
