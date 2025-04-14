@@ -6,5 +6,5 @@ faiss-cpu
 numpy
 passlib[bcrypt]
 itsdangerous
-openai
+openai>=1.0.0
 
