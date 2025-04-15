@@ -11,7 +11,6 @@ from openai import OpenAI
 
 # === API Keys & Clients ===
 ALIYUN_API_KEY = os.getenv("DASHSCOPE_API_KEY")
-HF_API_KEY = os.getenv("HF_API_KEY")
 OSS_INDEX_URL = os.getenv("FAISS_INDEX_URL")
 OSS_CHUNKS_URL = os.getenv("CHUNKS_JSON_URL")
 
@@ -20,14 +19,12 @@ client = OpenAI(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
 )
 
-HEADERS = {
-    "Authorization": f"Bearer {HF_API_KEY}",
-    "Content-Type": "application/json"
-}
-
 # === Globals ===
 RESULTS_DIR = "results"
-global_chat_history = deque(maxlen=50)
+global_chat_history = deque(maxlen=100)
+cached_index = None
+cached_chunks = None
+cached_sources = None
 
 # Prompt segments
 DIRECT_SYSTEM_PREFIX = (
@@ -35,7 +32,9 @@ DIRECT_SYSTEM_PREFIX = (
 )
 
 RAG_SYSTEM_PREFIX = (
-    "You are a clinical oncology expert. Use the following retrieved references and patient details to generate a structured, evidence-based treatment plan aligned with NCCN guidelines and recent studies. "
+    "You are a clinical oncology expert. Use the following retrieved references and patient details to generate a structured, evidence-based treatment plan aligned with NCCN guidelines and recent studies. \n"
+    "You need to mark clearly that where you use the retrieved references and describe them by the first line of files which are DOI number or link address. \n"
+    "At the beginning of your answer, you should show the retrieve guidelines to summary the retrieve and also describe references by the first line of files. "
 )
 
 SYSTEM_PROMPT_SHARED = (
@@ -75,7 +74,7 @@ SYSTEM_PROMPT_SHARED = (
     "Deliver a clinically actionable, evidence-backed, mutation-aware treatment plan — as if intended for oncologists or tumor board review."
 )
 
-# === Load FAISS index and chunks from OSS ===
+# === File download & in-memory caching ===
 def download_file(url):
     response = requests.get(url)
     response.raise_for_status()
@@ -85,16 +84,22 @@ def download_file(url):
     return tmp.name
 
 def load_index_and_chunks():
-    index_path = download_file(OSS_INDEX_URL)
-    index = faiss.read_index(index_path)
+    global cached_index, cached_chunks, cached_sources
+    if cached_index is not None:
+        return cached_index, cached_chunks, cached_sources
 
+    index_path = download_file(OSS_INDEX_URL)
     chunks_path = download_file(OSS_CHUNKS_URL)
+
+    cached_index = faiss.read_index(index_path)
     with open(chunks_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
+        cached_chunks = meta["chunks"]
+        cached_sources = meta["sources"]
 
-    return index, meta["chunks"], meta["sources"]
+    return cached_index, cached_chunks, cached_sources
 
-# === Embedding Function ===
+# === Embedding via Aliyun ===
 def embed_query(text):
     response = client.embeddings.create(
         model="text-embedding-v3",
@@ -104,20 +109,20 @@ def embed_query(text):
     )
     return np.array(response.data[0].embedding, dtype='float32')
 
-# === RAG Chunk Retrieval ===
+# === RAG chunk retrieval ===
 def retrieve_chunks(query_embedding, index, chunks, sources, k=5):
     D, I = index.search(query_embedding.reshape(1, -1), k)
     return [f"{chunks[i]} (Source: {sources[i]})" for i in I[0]]
 
-# === Chat Model Call ===
+# === Chat completion via DeepSeek ===
 def query_chat_model(messages):
-    prompt = "\n".join([f"{m['role'].capitalize()}: {m['content']}" for m in messages]) + "\nAssistant:"
-    url = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-    response = requests.post(url, headers=HEADERS, json={"inputs": prompt, "parameters": {"max_new_tokens": 512}})
-    response.raise_for_status()
-    return response.json()[0]["generated_text"].split("Assistant:")[-1].strip()
+    completion = client.chat.completions.create(
+        model="deepseek-r1",
+        messages=messages
+    )
+    return completion.choices[0].message.content.strip()
 
-# === Markdown Save ===
+# === Save to markdown ===
 def save_chat_markdown(history):
     os.makedirs(RESULTS_DIR, exist_ok=True)
     filename = os.path.join(RESULTS_DIR, f"chat_{datetime.datetime.now():%Y%m%d_%H%M%S}.md")
@@ -128,7 +133,7 @@ def save_chat_markdown(history):
             f.write(f"## {role}\n{turn['content']}\n\n")
     return filename
 
-# === Modes ===
+# === Chat Modes ===
 def direct_chat(user_input, chat_history):
     chat_history.append({"role": "user", "content": user_input})
     messages = [{"role": "system", "content": DIRECT_SYSTEM_PREFIX + SYSTEM_PROMPT_SHARED}] + chat_history
